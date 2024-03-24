@@ -1,82 +1,61 @@
 #[derive(Debug, Clone, Copy)]
-struct Point {
+struct Coordinate {
     x: f64,
     y: f64,
 }
 
-impl Point {
+impl Coordinate {
     fn new(x: f64, y: f64) -> Self {
-        Point { x, y }
+        Coordinate { x, y }
     }
 }
 
 #[derive(Debug)]
 struct Boundary {
-    min_point: Point,
-    max_point: Point,
+    top_left_coor: Coordinate,
+    bottom_right_coor: Coordinate,
 }
 
 impl Boundary {
-    fn new(min_point: Point, max_point: Point) -> Boundary {
+    fn new(top_left_coor: Coordinate, bottom_right_coor: Coordinate) -> Boundary {
         Boundary {
-            min_point,
-            max_point,
+            top_left_coor,
+            bottom_right_coor,
         }
     }
 
-    fn contains(&self, point: &Point) -> bool {
-        point.x >= self.min_point.x
-            && point.x < self.max_point.x
-            && point.y >= self.min_point.y
-            && point.y < self.max_point.y
+    fn contains(&self, point: &Coordinate) -> bool {
+        point.x >= self.top_left_coor.x
+            && point.x < self.bottom_right_coor.x
+            && point.y >= self.top_left_coor.y
+            && point.y < self.bottom_right_coor.y
     }
     fn intersects(&self, boundary: &Boundary) -> bool {
-        self.min_point.x < boundary.max_point.x
-            && self.max_point.x >= boundary.min_point.x
-            && self.min_point.y < boundary.max_point.y
-            && self.max_point.y >= boundary.min_point.y
+        self.top_left_coor.x < boundary.bottom_right_coor.x
+            && self.bottom_right_coor.x >= boundary.top_left_coor.x
+            && self.top_left_coor.y < boundary.bottom_right_coor.y
+            && self.bottom_right_coor.y >= boundary.top_left_coor.y
     }
 
-    fn mid_point(&self) -> Point {
-        Point::new(
-            (self.min_point.x + self.max_point.x) / 2.0,
-            (self.min_point.y + self.max_point.y) / 2.0,
-        )
-    }
+    fn disect(&self) -> (Self, Self, Self, Self) {
+        let mid_coor = Coordinate::new(
+            (self.top_left_coor.x + self.bottom_right_coor.x) / 2.0,
+            (self.top_left_coor.y + self.bottom_right_coor.y) / 2.0,
+        );
 
-    fn nw(&self) -> Self {
-        Self {
-            min_point: Point::new(self.min_point.x, self.min_point.y),
-            max_point: self.mid_point(),
-        }
-    }
-    fn ne(&self) -> Self {
-        let mid_point = self.mid_point();
+        let nw = Boundary::new(self.top_left_coor, mid_coor);
+        let ne = Boundary::new(
+            Coordinate::new(mid_coor.x, self.top_left_coor.y),
+            Coordinate::new(self.bottom_right_coor.x, mid_coor.y),
+        );
+        let sw = Boundary::new(
+            Coordinate::new(self.top_left_coor.x, mid_coor.y),
+            Coordinate::new(mid_coor.x, self.bottom_right_coor.y),
+        );
 
-        Self {
-            min_point: Point::new(mid_point.x, self.min_point.y),
-            max_point: Point::new(self.max_point.x, mid_point.y),
-        }
-    }
+        let se = Boundary::new(mid_coor, self.bottom_right_coor.clone());
 
-    fn sw(&self) -> Self {
-        let mid_point = self.mid_point();
-
-        Self {
-            min_point: Point::new(self.min_point.x, mid_point.y),
-            max_point: Point::new(mid_point.x, self.max_point.y),
-        }
-    }
-
-    fn se(&self) -> Self {
-        Self {
-            min_point: self.mid_point(),
-            max_point: Point::new(self.max_point.x, self.max_point.y),
-        }
-    }
-
-    fn divide(&self) -> (Self, Self, Self, Self) {
-        (self.nw(), self.ne(), self.sw(), self.se())
+        (nw, ne, sw, se)
     }
 }
 
@@ -84,7 +63,7 @@ impl Boundary {
 struct Quadtree<T> {
     boundary: Boundary,
     capacity: usize,
-    points: Vec<Point>,
+    coordinates: Vec<Coordinate>,
     interests: Vec<T>,
     divided: bool,
     nw: Option<Box<Quadtree<T>>>,
@@ -98,7 +77,7 @@ impl<T> Quadtree<T> {
         Quadtree {
             boundary,
             capacity,
-            points: Vec::with_capacity(capacity),
+            coordinates: Vec::with_capacity(capacity),
             interests: Vec::with_capacity(capacity),
             divided: false,
             nw: None,
@@ -107,7 +86,10 @@ impl<T> Quadtree<T> {
             se: None,
         }
     }
-    fn locate_subboundary_to_put(&mut self, point: &Point) -> &mut Option<Box<Quadtree<T>>> {
+    fn find_subquadtree_for_newly_added_coordinate(
+        &mut self,
+        point: &Coordinate,
+    ) -> &mut Option<Box<Quadtree<T>>> {
         if self.nw.as_ref().unwrap().boundary.contains(point) {
             &mut self.nw
         } else if self.ne.as_ref().unwrap().boundary.contains(point) {
@@ -121,29 +103,26 @@ impl<T> Quadtree<T> {
         }
     }
 
-    pub fn insert(&mut self, point: Point, object: T) {
-        // If the given point is outside the boundary, return.
-
-        if !self.boundary.contains(&point) {
+    pub fn insert(&mut self, coor: Coordinate, interest: T) {
+        if !self.boundary.contains(&coor) {
             return;
         }
 
-        if !self.divided && (self.points.len() < self.capacity) {
-            self.points.push(point);
-            self.interests.push(object);
-        } else {
-            if !self.divided {
-                self.subdivide();
-            }
+        if self.coordinates.len() >= self.capacity {
+            self.subdivide();
+        }
 
-            // if divided, it has sub-quadtree and you can try insert harmlessly!
-            let sub_boundary = self.locate_subboundary_to_put(&point);
-            sub_boundary.as_mut().unwrap().insert(point, object);
+        if self.divided {
+            let sub_quadtree = self.find_subquadtree_for_newly_added_coordinate(&coor);
+            sub_quadtree.as_mut().unwrap().insert(coor, interest);
+        } else {
+            self.coordinates.push(coor);
+            self.interests.push(interest)
         }
     }
 
     fn subdivide(&mut self) {
-        let (nw_boundary, ne_boundary, sw_boundary, se_boundary) = self.boundary.divide();
+        let (nw_boundary, ne_boundary, sw_boundary, se_boundary) = self.boundary.disect();
 
         self.nw = Some(Box::new(Quadtree::new(nw_boundary, self.capacity)));
         self.ne = Some(Box::new(Quadtree::new(ne_boundary, self.capacity)));
@@ -152,21 +131,19 @@ impl<T> Quadtree<T> {
 
         self.divided = true;
 
-        // Reinsert points
-        for (point, object) in std::mem::take(&mut self.points)
+        // At this point, `self(quadtree)` is not leaf node anymore. Reinsert its interests and coordinates into subquadtree
+        std::mem::take(&mut self.coordinates)
             .into_iter()
-            .zip(std::mem::take(&mut self.interests).into_iter())
-        {
-            self.insert(point, object);
-        }
+            .zip(std::mem::take(&mut self.interests))
+            .for_each(|(coor, interest)| self.insert(coor, interest))
     }
 
-    fn query<'a: 'b, 'b>(&'a self, range: &Boundary, found: &mut Vec<(Point, &'b T)>) {
+    fn query<'a: 'b, 'b>(&'a self, range: &Boundary, found: &mut Vec<(Coordinate, &'b T)>) {
         if !self.boundary.intersects(range) {
             return;
         }
 
-        for (point, object) in self.points.iter().zip(self.interests.iter()) {
+        for (point, object) in self.coordinates.iter().zip(self.interests.iter()) {
             if range.contains(point) {
                 found.push((*point, object));
             }
@@ -191,34 +168,56 @@ impl<T> Quadtree<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{Boundary, Point, Quadtree};
+    use crate::{Boundary, Coordinate, Quadtree};
 
     #[test]
     fn test_contains() {
         //GIVEN
-        let boundary = Boundary::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0));
+        let boundary = Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(100.0, 100.0));
         //WHEN
-        let res = boundary.contains(&Point { x: 0.5, y: 2.0 });
+        let res = boundary.contains(&Coordinate { x: 0.5, y: 2.0 });
         //THEN
         assert!(res);
     }
+
     #[test]
-    fn test() {
+    fn test_insert() {
+        //GIVEN
+        let mut qt = Quadtree::<&str>::new(
+            Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(100.0, 100.0)),
+            4,
+        );
+
+        //WHEN
+        qt.insert(Coordinate::new(30.0, 20.0), "1");
+        qt.insert(Coordinate::new(10.0, 50.0), "2");
+        qt.insert(Coordinate::new(60.0, 60.0), "3");
+        qt.insert(Coordinate::new(70.0, 90.0), "4");
+        qt.insert(Coordinate::new(100.0, 100.0), "5");
+
+        //THEN
+        assert!(qt.divided);
+        assert!(qt.interests.is_empty());
+        assert!(qt.coordinates.is_empty());
+        assert_eq!(qt.se.unwrap().interests.len(), 3);
+    }
+
+    #[test]
+    fn test_query() {
         let mut quadtree: Quadtree<&str> = Quadtree::new(
-            Boundary::new(Point::new(0.0, 0.0), Point::new(100.0, 100.0)),
+            Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(100.0, 100.0)),
             4,
         );
 
         // Inserting some points
-        quadtree.insert(Point::new(30.0, 30.0), "A");
-        quadtree.insert(Point::new(10.0, 50.0), "B");
-        quadtree.insert(Point::new(70.0, 20.0), "C");
-        quadtree.insert(Point::new(80.0, 80.0), "D");
-
-        quadtree.insert(Point::new(80.0, 90.0), "E");
+        quadtree.insert(Coordinate::new(30.0, 30.0), "A");
+        quadtree.insert(Coordinate::new(10.0, 50.0), "B");
+        quadtree.insert(Coordinate::new(70.0, 20.0), "C");
+        quadtree.insert(Coordinate::new(80.0, 80.0), "D");
+        quadtree.insert(Coordinate::new(80.0, 90.0), "E");
 
         // Querying points in a range
-        let range = Boundary::new(Point::new(50.0, 50.0), Point::new(100.0, 100.0));
+        let range = Boundary::new(Coordinate::new(50.0, 50.0), Coordinate::new(100.0, 100.0));
         let mut found_points = Vec::new();
         quadtree.query(&range, &mut found_points);
 
