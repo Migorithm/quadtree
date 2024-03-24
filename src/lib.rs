@@ -1,16 +1,20 @@
 #[derive(Debug, Clone, Copy)]
 pub struct Coordinate {
-    x: f64,
-    y: f64,
+    longitude: f64,
+    latitude: f64,
 }
 
 impl Coordinate {
-    pub fn new(x: f64, y: f64) -> Self {
-        Coordinate { x, y }
+    pub fn new(longitude: f64, latitude: f64) -> Self {
+        Coordinate {
+            longitude,
+            latitude,
+        }
     }
 
     fn distance(&self, other: &Coordinate) -> f64 {
-        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+        ((self.longitude - other.longitude).powi(2) + (self.latitude - other.latitude).powi(2))
+            .sqrt()
     }
 }
 
@@ -29,33 +33,33 @@ impl Boundary {
     }
 
     fn contains(&self, point: &Coordinate) -> bool {
-        point.x >= self.top_left_coor.x
-            && point.x < self.bottom_right_coor.x
-            && point.y >= self.top_left_coor.y
-            && point.y < self.bottom_right_coor.y
+        point.longitude >= self.top_left_coor.longitude
+            && point.longitude < self.bottom_right_coor.longitude
+            && point.latitude >= self.top_left_coor.latitude
+            && point.latitude < self.bottom_right_coor.latitude
     }
     fn intersects(&self, boundary: &Boundary) -> bool {
-        self.top_left_coor.x < boundary.bottom_right_coor.x
-            && self.bottom_right_coor.x >= boundary.top_left_coor.x
-            && self.top_left_coor.y < boundary.bottom_right_coor.y
-            && self.bottom_right_coor.y >= boundary.top_left_coor.y
+        self.top_left_coor.longitude < boundary.bottom_right_coor.longitude
+            && self.bottom_right_coor.longitude >= boundary.top_left_coor.longitude
+            && self.top_left_coor.latitude < boundary.bottom_right_coor.latitude
+            && self.bottom_right_coor.latitude >= boundary.top_left_coor.latitude
     }
 
     // used from subdivide function!
     fn disect(&self) -> (Self, Self, Self, Self) {
         let mid_coor = Coordinate::new(
-            (self.top_left_coor.x + self.bottom_right_coor.x) / 2.0,
-            (self.top_left_coor.y + self.bottom_right_coor.y) / 2.0,
+            (self.top_left_coor.longitude + self.bottom_right_coor.longitude) / 2.0,
+            (self.top_left_coor.latitude + self.bottom_right_coor.latitude) / 2.0,
         );
 
         let nw = Boundary::new(self.top_left_coor, mid_coor);
         let ne = Boundary::new(
-            Coordinate::new(mid_coor.x, self.top_left_coor.y),
-            Coordinate::new(self.bottom_right_coor.x, mid_coor.y),
+            Coordinate::new(mid_coor.longitude, self.top_left_coor.latitude),
+            Coordinate::new(self.bottom_right_coor.longitude, mid_coor.latitude),
         );
         let sw = Boundary::new(
-            Coordinate::new(self.top_left_coor.x, mid_coor.y),
-            Coordinate::new(mid_coor.x, self.bottom_right_coor.y),
+            Coordinate::new(self.top_left_coor.longitude, mid_coor.latitude),
+            Coordinate::new(mid_coor.longitude, self.bottom_right_coor.latitude),
         );
 
         let se = Boundary::new(mid_coor, self.bottom_right_coor);
@@ -153,7 +157,11 @@ impl<T> Quadtree<T> {
 
     // recursive function
     fn search<'a: 'b, 'b>(&'a self, distances: &mut Vec<(&'b T, f64)>, query_point: &Coordinate) {
-        if self.boundary.contains(query_point) && self.children.is_empty() {
+        if !self.boundary.contains(query_point) {
+            return;
+        }
+
+        if self.children.is_empty() {
             for (coordinate, interest) in self.coordinates.iter().zip(self.interests.iter()) {
                 let distance = coordinate.distance(query_point);
                 distances.push((interest, distance));
@@ -187,7 +195,10 @@ mod test {
         //GIVEN
         let boundary = Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(100.0, 100.0));
         //WHEN
-        let res = boundary.contains(&Coordinate { x: 0.5, y: 2.0 });
+        let res = boundary.contains(&Coordinate {
+            longitude: 0.5,
+            latitude: 2.0,
+        });
         //THEN
         assert!(res);
     }
@@ -284,7 +295,7 @@ mod test {
         //GIVEN
         // million record
         let mut rng = rand::thread_rng();
-        let million_record = (0..100000000)
+        let million_record = (0..1000000)
             .map(|_| (rng.gen_range(0.0..4999.9), rng.gen_range(0.0..4999.9)))
             .collect::<Vec<_>>();
 
@@ -295,8 +306,14 @@ mod test {
         let instance = std::time::Instant::now();
 
         // WHEN
-        for (x, y) in million_record {
-            quadtree.insert(Coordinate { x, y }, "A");
+        for (longitude, latitude) in million_record {
+            quadtree.insert(
+                Coordinate {
+                    longitude,
+                    latitude,
+                },
+                "A",
+            );
         }
         let second_instant = std::time::Instant::now();
 
@@ -305,5 +322,51 @@ mod test {
             "Time passed : {}",
             second_instant.duration_since(instance).as_millis()
         );
+    }
+
+    #[test]
+    fn test_near_5_from_million_records() {
+        use rand::Rng;
+
+        //GIVEN
+        // million record
+        let mut rng = rand::thread_rng();
+        let million_record = (0..1000000)
+            .map(|_| (rng.gen_range(-180.0..180.0), rng.gen_range(-90.0..90.0)))
+            .collect::<Vec<_>>();
+
+        let mut quadtree: Quadtree<String> = Quadtree::new(
+            Boundary::new(Coordinate::new(-180.0, -90.0), Coordinate::new(180.0, 90.0)),
+            20,
+        );
+
+        for (longitude, latitude) in million_record {
+            quadtree.insert(
+                Coordinate {
+                    longitude,
+                    latitude,
+                },
+                format!("long : {longitude}, lat: {latitude}"),
+            );
+        }
+
+        // WHEN
+        let instance = std::time::Instant::now();
+
+        let k_business = quadtree.find_nearest_neighbors(
+            &Coordinate {
+                longitude: 127.0,
+                latitude: 38.1,
+            },
+            5,
+        );
+
+        // THEN
+        let second_instant = std::time::Instant::now();
+        println!(
+            "Time passed : {}",
+            second_instant.duration_since(instance).as_millis()
+        );
+        assert_eq!(k_business.len(), 5);
     }
 }
