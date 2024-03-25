@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Copy)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Coordinate {
     longitude: f64,
     latitude: f64,
@@ -18,7 +20,7 @@ impl Coordinate {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Boundary {
     top_left_coor: Coordinate,
     bottom_right_coor: Coordinate,
@@ -68,7 +70,7 @@ impl Boundary {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Quadtree<T> {
     boundary: Boundary,
     capacity: usize,
