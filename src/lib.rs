@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Coordinate {
-    longitude: f64,
-    latitude: f64,
+    pub longitude: f64,
+    pub latitude: f64,
 }
 
 impl Coordinate {
@@ -22,8 +22,8 @@ impl Coordinate {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Boundary {
-    top_left_coor: Coordinate,
-    bottom_right_coor: Coordinate,
+    pub top_left_coor: Coordinate,
+    pub bottom_right_coor: Coordinate,
 }
 
 impl Boundary {
@@ -72,10 +72,10 @@ impl Boundary {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Quadtree<T> {
-    boundary: Boundary,
-    capacity: usize,
-    coordinates: Vec<Coordinate>,
-    interests: Vec<T>,
+    pub boundary: Boundary,
+    pub capacity: usize,
+    pub coordinates: Vec<Coordinate>,
+    pub interests: Vec<T>,
 
     children: Vec<Quadtree<T>>,
 }
