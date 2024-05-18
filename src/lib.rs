@@ -24,7 +24,7 @@ impl PartialEq for NonNanFloat {
 
 impl PartialOrd for NonNanFloat {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+        self.0.partial_cmp(&other.0)
     }
 }
 
