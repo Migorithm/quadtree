@@ -22,6 +22,17 @@ impl PartialEq for NonNanFloat {
     }
 }
 
+impl PartialEq<f64> for NonNanFloat {
+    #[inline]
+    fn eq(&self, other: &f64) -> bool {
+        if self.0.is_nan() {
+            other.is_nan()
+        } else {
+            self.0 == *other
+        }
+    }
+}
+
 impl PartialOrd for NonNanFloat {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -376,6 +387,9 @@ mod test {
         let b = NonNanFloat(20.0);
         let c = NonNanFloat(30.0);
         let d = NonNanFloat(40.0);
+        let nan = NonNanFloat(f64::NAN);
+        let another_nan = NonNanFloat(f64::NAN);
+        let plain_float = 10.0;
 
         //WHEN
         let res = a + b;
@@ -385,6 +399,12 @@ mod test {
         let res5 = a > b;
         let res6 = a < b;
         let res7 = a == b;
+        let res8 = nan == another_nan;
+        let res9 = a == plain_float;
+        let res10 = a + plain_float;
+        let res11 = a - plain_float;
+        let res12 = a * plain_float;
+        let res13 = a / plain_float;
 
         //THEN
         assert_eq!(res, NonNanFloat(30.0));
@@ -394,6 +414,12 @@ mod test {
         assert!(!res5);
         assert!(res6);
         assert!(!res7);
+        assert!(res8);
+        assert!(res9);
+        assert_eq!(res10, NonNanFloat(20.0));
+        assert_eq!(res11, NonNanFloat(0.0));
+        assert_eq!(res12, NonNanFloat(100.0));
+        assert_eq!(res13, NonNanFloat(1.0));
     }
 
     #[test]
@@ -435,6 +461,8 @@ mod test {
             (Coordinate::new(100.0, 200.0), 100.0),
             (Coordinate::new(150.0, 150.0), f64::sqrt(5000.0)),
             (Coordinate::new(101.0, 103.0), f64::sqrt(10.0)),
+            // real data
+            (Coordinate::new(37.512428, 127.054513), 27.054513),
         ];
 
         //THEN
@@ -495,38 +523,107 @@ mod test {
 
     #[test]
     fn test_k_nearest() {
+        struct TestCase<'a> {
+            points: Vec<(f64, f64, &'a str)>,
+            query_point: (f64, f64),
+            k: usize,
+            expected: Vec<&'a str>,
+        }
+
         //GIVEN
-        let mut quadtree: Quadtree<&str> = Quadtree::new(
-            Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(5000.0, 5000.0)),
-            4,
-        );
-
-        // Inserting some points
-        quadtree.insert(Coordinate::new(30.0, 30.0), "A");
-        quadtree.insert(Coordinate::new(10.0, 50.0), "B");
-        quadtree.insert(Coordinate::new(70.0, 20.0), "C");
-        quadtree.insert(Coordinate::new(80.0, 80.0), "D");
-        quadtree.insert(Coordinate::new(80.0, 90.0), "E");
-        quadtree.insert(Coordinate::new(60.0, 90.0), "F");
-        quadtree.insert(Coordinate::new(2500.0, 2700.0), "G");
-        quadtree.insert(Coordinate::new(1700.0, 1500.0), "H");
-        quadtree.insert(Coordinate::new(4993.0, 4999.0), "I");
-        quadtree.insert(Coordinate::new(4993.0, 4330.0), "J");
-        quadtree.insert(Coordinate::new(4993.0, 4500.0), "K");
-
-        //WHEN
-        let query_point = Coordinate::new(4999.0, 4950.0);
-        let interests = quadtree.find_nearest_neighbors(&query_point, 8);
+        let mut cases = vec![
+            TestCase {
+                points: vec![
+                    (30.0, 30.0, "A"),
+                    (10.0, 50.0, "B"),
+                    (70.0, 20.0, "C"),
+                    (80.0, 80.0, "D"),
+                    (80.0, 90.0, "E"),
+                    (60.0, 90.0, "F"),
+                    (2500.0, 2700.0, "G"),
+                    (1700.0, 1500.0, "H"),
+                    (4993.0, 4999.0, "I"),
+                    (4993.0, 4330.0, "J"),
+                    (4993.0, 4500.0, "K"),
+                ],
+                query_point: (4999.0, 4950.0),
+                k: 8,
+                expected: vec!["I", "J", "K", "G", "H", "E", "D", "F"],
+            },
+            TestCase {
+                points: vec![
+                    (30.0, 30.0, "A"),
+                    (10.0, 50.0, "B"),
+                    (70.0, 20.0, "C"),
+                    (80.0, 80.0, "D"),
+                    (80.0, 90.0, "E"),
+                    (60.0, 90.0, "F"),
+                    (2500.0, 2700.0, "G"),
+                    (1700.0, 1500.0, "H"),
+                    (4993.0, 4999.0, "I"),
+                    (4993.0, 4330.0, "J"),
+                    (4993.0, 4500.0, "K"),
+                ],
+                query_point: (4999.0, 4950.0),
+                k: 5,
+                expected: vec!["I", "J", "K", "G", "H"],
+            },
+            TestCase {
+                points: vec![
+                    (30.0, 30.0, "A"),
+                    (10.0, 50.0, "B"),
+                    (70.0, 20.0, "C"),
+                    (80.0, 80.0, "D"),
+                    (80.0, 90.0, "E"),
+                    (60.0, 90.0, "F"),
+                    (2500.0, 2700.0, "G"),
+                    (1700.0, 1500.0, "H"),
+                    (4993.0, 4999.0, "I"),
+                    (4993.0, 4330.0, "J"),
+                    (4993.0, 4500.0, "K"),
+                ],
+                query_point: (4999.0, 4950.0),
+                k: 3,
+                expected: vec!["I", "J", "K"],
+            },
+            TestCase {
+                points: vec![(30.0, 30.0, "A"), (10.0, 50.0, "B"), (70.0, 20.0, "C")],
+                query_point: (4999.0, 4950.0),
+                k: 5,
+                expected: vec!["A", "B", "C"],
+            },
+            TestCase {
+                points: Vec::new(),
+                query_point: (4999.0, 4950.0),
+                k: 5,
+                expected: Vec::new(),
+            },
+        ];
 
         //THEN
-        assert_eq!(interests.len(), 8);
-        let mut expected = vec!["I", "J", "K", "G", "H", "E", "D", "F"];
-        for interest in interests {
-            assert!(expected.contains(interest));
-            let pos = expected.iter().position(|x| x == interest);
-            expected.remove(pos.unwrap());
+        for case in cases.iter_mut() {
+            let mut quadtree: Quadtree<&str> = Quadtree::new(
+                Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(5000.0, 5000.0)),
+                4,
+            );
+
+            for (longitude, latitude, interest) in &case.points {
+                quadtree.insert(Coordinate::new(*longitude, *latitude), interest);
+            }
+
+            let mut interests = quadtree.find_nearest_neighbors(
+                &Coordinate::new(case.query_point.0, case.query_point.1),
+                case.k,
+            );
+
+            interests.sort();
+            case.expected.sort();
+
+            assert_eq!(interests.len(), case.expected.len());
+            for (interest, expected) in interests.iter().zip(case.expected.iter()) {
+                assert_eq!(*interest, expected);
+            }
         }
-        assert!(expected.is_empty());
     }
 
     #[test]
