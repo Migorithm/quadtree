@@ -1,16 +1,153 @@
+use std::{
+    cmp::Reverse,
+    collections::BinaryHeap,
+    fmt::Debug,
+    iter::zip,
+    ops::{Add, Deref, Div, Mul, Sub},
+};
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct NonNanFloat(f64);
+
+impl PartialEq for NonNanFloat {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.is_nan() {
+            other.0.is_nan()
+        } else {
+            self.0 == other.0
+        }
+    }
+}
+
+impl PartialOrd for NonNanFloat {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.0.partial_cmp(&other.0)
+    }
+}
+
+impl Eq for NonNanFloat {}
+
+impl Ord for NonNanFloat {
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.partial_cmp(other).unwrap()
+    }
+}
+
+impl Sub for NonNanFloat {
+    type Output = Self;
+
+    fn sub(self, other: Self) -> Self {
+        Self(self.0 - other.0)
+    }
+}
+
+impl Sub<f64> for NonNanFloat {
+    type Output = Self;
+
+    fn sub(self, other: f64) -> Self {
+        Self(self.0 - other)
+    }
+}
+
+impl Add for NonNanFloat {
+    type Output = Self;
+
+    fn add(self, other: Self) -> Self {
+        NonNanFloat(self.0 + other.0)
+    }
+}
+
+impl Add<f64> for NonNanFloat {
+    type Output = Self;
+
+    fn add(self, other: f64) -> Self {
+        NonNanFloat(self.0 + other)
+    }
+}
+
+impl Mul for NonNanFloat {
+    type Output = Self;
+
+    fn mul(self, other: Self) -> Self {
+        NonNanFloat(self.0 * other.0)
+    }
+}
+
+impl Mul<f64> for NonNanFloat {
+    type Output = Self;
+
+    fn mul(self, other: f64) -> Self {
+        NonNanFloat(self.0 * other)
+    }
+}
+
+impl Div for NonNanFloat {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self {
+        NonNanFloat(self.0 / other.0)
+    }
+}
+
+impl Div<f64> for NonNanFloat {
+    type Output = Self;
+
+    fn div(self, other: f64) -> Self {
+        NonNanFloat(self.0 / other)
+    }
+}
+
+impl Deref for NonNanFloat {
+    type Target = f64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl NonNanFloat {
+    fn new(value: f64) -> Self {
+        assert!(!value.is_nan());
+        NonNanFloat(value)
+    }
+}
+
+impl From<f64> for NonNanFloat {
+    fn from(value: f64) -> Self {
+        NonNanFloat::new(value)
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize)]
 pub struct Coordinate {
-    pub longitude: f64,
-    pub latitude: f64,
+    pub longitude: NonNanFloat,
+    pub latitude: NonNanFloat,
+}
+
+pub trait TCoordianteFloat {
+    fn into(self) -> NonNanFloat;
+}
+impl TCoordianteFloat for f64 {
+    fn into(self) -> NonNanFloat {
+        NonNanFloat::new(self)
+    }
+}
+impl TCoordianteFloat for NonNanFloat {
+    fn into(self) -> NonNanFloat {
+        self
+    }
 }
 
 impl Coordinate {
-    pub fn new(longitude: f64, latitude: f64) -> Self {
+    pub fn new<F: TCoordianteFloat>(longitude: F, latitude: F) -> Self {
         Coordinate {
-            longitude,
-            latitude,
+            longitude: longitude.into(),
+            latitude: latitude.into(),
         }
     }
 
@@ -68,10 +205,34 @@ impl Boundary {
 
         (nw, ne, sw, se)
     }
+
+    fn distance(&self, point: &Coordinate) -> NonNanFloat {
+        if self.contains(point) {
+            return NonNanFloat(0.0);
+        }
+
+        let dx = if point.longitude < self.top_left_coor.longitude {
+            self.top_left_coor.longitude - point.longitude
+        } else if point.longitude >= self.bottom_right_coor.longitude {
+            point.longitude - self.bottom_right_coor.longitude
+        } else {
+            NonNanFloat(0.0)
+        };
+
+        let dy = if point.latitude < self.top_left_coor.latitude {
+            self.top_left_coor.latitude - point.latitude
+        } else if point.latitude >= self.bottom_right_coor.latitude {
+            point.latitude - self.bottom_right_coor.latitude
+        } else {
+            NonNanFloat(0.0)
+        };
+
+        NonNanFloat((dx.powi(2) + dy.powi(2)).sqrt())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Quadtree<T> {
+pub struct Quadtree<T: Ord> {
     pub boundary: Boundary,
     pub capacity: usize,
     pub coordinates: Vec<Coordinate>,
@@ -80,7 +241,7 @@ pub struct Quadtree<T> {
     children: Vec<Quadtree<T>>,
 }
 
-impl<T> Quadtree<T> {
+impl<T: Ord + Debug> Quadtree<T> {
     pub fn new(boundary: Boundary, capacity: usize) -> Quadtree<T> {
         Quadtree {
             boundary,
@@ -158,33 +319,49 @@ impl<T> Quadtree<T> {
     }
 
     // recursive function
-    fn search<'a: 'b, 'b>(&'a self, distances: &mut Vec<(&'b T, f64)>, query_point: &Coordinate) {
-        if !self.boundary.contains(query_point) {
-            return;
+    fn search<'a>(
+        &'a self,
+        nearest_neighbers: &mut BinaryHeap<(NonNanFloat, &'a T)>,
+        query_point: &Coordinate,
+        k: usize,
+    ) {
+        if nearest_neighbers.len() == k {
+            if let Some((max_distance, _)) = nearest_neighbers.peek() {
+                if self.boundary.distance(query_point) >= *max_distance {
+                    return;
+                }
+            }
         }
 
-        if self.children.is_empty() {
-            for (coordinate, interest) in self.coordinates.iter().zip(self.interests.iter()) {
-                let distance = coordinate.distance(query_point);
-                distances.push((interest, distance));
+        for (coord, v) in zip(&self.coordinates, &self.interests) {
+            let distance = coord.distance(query_point);
+            if nearest_neighbers.len() < k {
+                nearest_neighbers.push((NonNanFloat::new(distance), v));
+            } else if let Some((max_distance, _)) = nearest_neighbers.peek() {
+                if distance >= **max_distance {
+                    continue;
+                }
+                if nearest_neighbers.len() == k {
+                    nearest_neighbers.pop();
+                }
+                nearest_neighbers.push((NonNanFloat::new(distance), v));
             }
-        } else {
-            for child in self.children.iter() {
-                child.search(distances, query_point);
-            }
+        }
+
+        for child in self.children.iter() {
+            child.search(nearest_neighbers, query_point, k);
         }
     }
 
     pub fn find_nearest_neighbors(&self, query_point: &Coordinate, k: usize) -> Vec<&T> {
-        let mut distances = vec![];
+        let mut nearest_neighbors = BinaryHeap::new();
+        self.search(&mut nearest_neighbors, query_point, k);
 
-        self.search(&mut distances, query_point);
-        distances.sort_by(|(_, dis1), (_, dis2)| dis1.partial_cmp(dis2).unwrap());
-        distances
-            .into_iter()
-            .take(k)
-            .map(|(c, _)| c)
-            .collect::<Vec<_>>()
+        nearest_neighbors
+            .into_sorted_vec()
+            .iter()
+            .map(|(_, v)| *v)
+            .collect()
     }
 }
 
@@ -193,16 +370,78 @@ mod test {
     use crate::{Boundary, Coordinate, Quadtree};
 
     #[test]
-    fn test_contains() {
+    fn non_nan_float() {
+        //GIVEN
+        let a = 10.0;
+        let b = 20.0;
+        let c = 30.0;
+        let d = 40.0;
+
+        //WHEN
+        let res = a + b;
+        let res2 = c - d;
+        let res3 = a * b;
+        let res4 = c / d;
+        let res5 = a > b;
+        let res6 = a < b;
+        let res7 = a == b;
+
+        //THEN
+        assert_eq!(res, 30.0);
+        assert_eq!(res2, -10.0);
+        assert_eq!(res3, 200.0);
+        assert_eq!(res4, 0.75);
+        assert!(!res5);
+        assert!(res6);
+        assert!(!res7);
+    }
+
+    #[test]
+    fn test_boundary_contains() {
         //GIVEN
         let boundary = Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(100.0, 100.0));
         //WHEN
-        let res = boundary.contains(&Coordinate {
-            longitude: 0.5,
-            latitude: 2.0,
-        });
+        let res = boundary.contains(&Coordinate::new(0.5, 2.0));
         //THEN
         assert!(res);
+    }
+
+    #[test]
+    fn test_boundary_distance() {
+        //GIVEN
+        let boundary = Boundary::new(Coordinate::new(0.0, 0.0), Coordinate::new(100.0, 100.0));
+
+        // WHEN
+        // The pair means (coordinate, expected distance)
+        let cases = vec![
+            // point is inside the boundary
+            (Coordinate::new(0.5, 2.0), 0.0),
+            (Coordinate::new(0.0, 0.0), 0.0),
+            (Coordinate::new(100.0, 100.0), 0.0),
+            (Coordinate::new(0.0, 100.0), 0.0),
+            (Coordinate::new(100.0, 0.0), 0.0),
+            (Coordinate::new(50.0, 50.0), 0.0),
+            (Coordinate::new(50.0, 0.0), 0.0),
+            (Coordinate::new(0.0, 50.0), 0.0),
+            (Coordinate::new(100.0, 50.0), 0.0),
+            (Coordinate::new(50.0, 100.0), 0.0),
+            // point is outside the boundary
+            (Coordinate::new(0.0, 200.0), 100.0),
+            (Coordinate::new(200.0, 0.0), 100.0),
+            (Coordinate::new(200.0, 200.0), f64::sqrt(20000.0)),
+            (Coordinate::new(50.0, 200.0), 100.0),
+            (Coordinate::new(200.0, 50.0), 100.0),
+            (Coordinate::new(200.0, 100.0), 100.0),
+            (Coordinate::new(100.0, 200.0), 100.0),
+            (Coordinate::new(150.0, 150.0), f64::sqrt(5000.0)),
+            (Coordinate::new(101.0, 103.0), f64::sqrt(10.0)),
+        ];
+
+        //THEN
+        for (coor, expected) in cases {
+            let res = boundary.distance(&coor);
+            assert_eq!(*res, expected);
+        }
     }
 
     #[test]
@@ -277,11 +516,11 @@ mod test {
 
         //WHEN
         let query_point = Coordinate::new(4999.0, 4950.0);
-        let interests = quadtree.find_nearest_neighbors(&query_point, 3);
+        let interests = quadtree.find_nearest_neighbors(&query_point, 8);
 
         //THEN
-        assert_eq!(interests.len(), 3);
-        let mut expected = vec!["I", "J", "K"];
+        assert_eq!(interests.len(), 8);
+        let mut expected = vec!["I", "J", "K", "G", "H", "E", "D", "F"];
         for interest in interests {
             assert!(expected.contains(interest));
             let pos = expected.iter().position(|x| x == interest);
@@ -309,13 +548,7 @@ mod test {
 
         // WHEN
         for (longitude, latitude) in million_record {
-            quadtree.insert(
-                Coordinate {
-                    longitude,
-                    latitude,
-                },
-                "A",
-            );
+            quadtree.insert(Coordinate::new(longitude, latitude), "A");
         }
         let second_instant = std::time::Instant::now();
 
@@ -344,10 +577,7 @@ mod test {
 
         for (longitude, latitude) in million_record {
             quadtree.insert(
-                Coordinate {
-                    longitude,
-                    latitude,
-                },
+                Coordinate::new(longitude, latitude),
                 format!("long : {longitude}, lat: {latitude}"),
             );
         }
@@ -355,13 +585,7 @@ mod test {
         // WHEN
         let instance = std::time::Instant::now();
 
-        let k_business = quadtree.find_nearest_neighbors(
-            &Coordinate {
-                longitude: 127.0,
-                latitude: 38.1,
-            },
-            5,
-        );
+        let k_business = quadtree.find_nearest_neighbors(&Coordinate::new(127.0, 38.1), 5);
 
         // THEN
         let second_instant = std::time::Instant::now();
