@@ -23,6 +23,7 @@ impl PartialEq for NonNanFloat {
 }
 
 impl PartialOrd for NonNanFloat {
+    #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
@@ -366,15 +367,15 @@ impl<T: Ord + Debug> Quadtree<T> {
 
 #[cfg(test)]
 mod test {
-    use crate::{Boundary, Coordinate, Quadtree};
+    use crate::{Boundary, Coordinate, NonNanFloat, Quadtree};
 
     #[test]
     fn non_nan_float() {
         //GIVEN
-        let a = 10.0;
-        let b = 20.0;
-        let c = 30.0;
-        let d = 40.0;
+        let a = NonNanFloat(10.0);
+        let b = NonNanFloat(20.0);
+        let c = NonNanFloat(30.0);
+        let d = NonNanFloat(40.0);
 
         //WHEN
         let res = a + b;
@@ -386,10 +387,10 @@ mod test {
         let res7 = a == b;
 
         //THEN
-        assert_eq!(res, 30.0);
-        assert_eq!(res2, -10.0);
-        assert_eq!(res3, 200.0);
-        assert_eq!(res4, 0.75);
+        assert_eq!(res, NonNanFloat(30.0));
+        assert_eq!(res2, NonNanFloat(-10.0));
+        assert_eq!(res3, NonNanFloat(200.0));
+        assert_eq!(res4, NonNanFloat(0.75));
         assert!(!res5);
         assert!(res6);
         assert!(!res7);
